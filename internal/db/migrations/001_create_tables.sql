@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS likes (
     post_id INT NOT NULL,
     user_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT now(),
+    UNIQUE (post_id, user_id)
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
