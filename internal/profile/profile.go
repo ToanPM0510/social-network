@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -23,10 +23,12 @@ type ProfileResponse struct {
 }
 
 type ProfilePost struct {
-	PostID    int       `json:"post_id"`
-	Content   string    `json:"content"`
-	ImageURL  string    `json:"image_url"`
-	CreatedAt time.Time `json:"created_at"`
+	PostID       int       `json:"post_id"`
+	Content      string    `json:"content"`
+	ImageURL     string    `json:"image_url"`
+	CreatedAt    time.Time `json:"created_at"`
+	LikeCount    int       `json:"like_count"`
+	CommentCount int       `json:"comment_count"`
 }
 
 func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
@@ -35,8 +37,29 @@ func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 
 	var userID int
 	var name, uname string
-	err := h.DB.QueryRow("SELECT id, name, username FROM users WHERE username = $1", username).
-		Scan(&userID, &name, &uname)
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit := 10 // default
+	offset := 0 // default
+
+	if limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if offsetStr != "" {
+		o, err := strconv.Atoi(offsetStr)
+		if err == nil && o >= 0 {
+			offset = o
+		}
+	}
+	err := h.DB.QueryRow(`
+		SELECT id, name, username 
+		FROM users 
+		WHERE username = $1
+	`, username).Scan(&userID, &name, &uname)
 	if err == sql.ErrNoRows {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
@@ -59,11 +82,26 @@ func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(`
-        SELECT id, content, image_url, created_at
-        FROM posts
-        WHERE user_id = $1
-        ORDER BY created_at DESC
-    `, userID)
+		SELECT 
+			p.id, p.content, p.image_url, p.created_at,
+			COALESCE(l.like_count, 0),
+			COALESCE(c.comment_count, 0)
+		FROM posts p
+		LEFT JOIN (
+			SELECT post_id, COUNT(*) AS like_count
+			FROM likes
+			GROUP BY post_id
+		) l ON p.id = l.post_id
+		LEFT JOIN (
+			SELECT post_id, COUNT(*) AS comment_count
+			FROM comments
+			GROUP BY post_id
+		) c ON p.id = c.post_id
+		WHERE p.user_id = $1
+		ORDER BY p.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
+
 	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
@@ -73,7 +111,13 @@ func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	var posts []ProfilePost
 	for rows.Next() {
 		var p ProfilePost
-		err := rows.Scan(&p.PostID, &p.Content, &p.ImageURL, &p.CreatedAt)
+		err := rows.Scan(
+			&p.PostID,
+			&p.Content,
+			&p.ImageURL,
+			&p.CreatedAt,
+			&p.LikeCount,
+			&p.CommentCount)
 		if err != nil {
 			http.Error(w, "Server error", http.StatusInternalServerError)
 			return

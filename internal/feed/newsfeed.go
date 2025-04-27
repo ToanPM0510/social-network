@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -13,12 +14,14 @@ type NewsfeedHandler struct {
 	DB *sql.DB
 }
 
-type NewsfeedItem struct {
+type PostResponse struct {
 	PostID         int       `json:"post_id"`
 	AuthorUsername string    `json:"author_username"`
 	Content        string    `json:"content"`
 	ImageURL       string    `json:"image_url"`
 	CreatedAt      time.Time `json:"created_at"`
+	LikeCount      int       `json:"like_count"`
+	CommentCount   int       `json:"comment_count"`
 }
 
 // Reuse function parseUsernameFromToken
@@ -32,6 +35,29 @@ func parseUsernameFromToken(token string) (string, error) {
 
 func (h *NewsfeedHandler) GetNewsfeed(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Authorization")
+	if token == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit := 10 // default
+	offset := 0 // default
+
+	if limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if offsetStr != "" {
+		o, err := strconv.Atoi(offsetStr)
+		if err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
 	username, err := parseUsernameFromToken(token)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -40,36 +66,71 @@ func (h *NewsfeedHandler) GetNewsfeed(w http.ResponseWriter, r *http.Request) {
 
 	var userID int
 	err = h.DB.QueryRow("SELECT id FROM users WHERE username=$1", username).Scan(&userID)
-	if err != nil {
+	if err == sql.ErrNoRows {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
 
 	rows, err := h.DB.Query(`
-        SELECT posts.id, users.username, posts.content, posts.image_url, posts.created_at
-        FROM posts
-        JOIN users ON posts.user_id = users.id
-        WHERE posts.user_id = $1
-           OR posts.user_id IN (SELECT followee_id FROM follows WHERE follower_id = $1)
-        ORDER BY posts.created_at DESC
-    `, userID)
+		SELECT 
+			p.id, u.username, p.content, p.image_url, p.created_at,
+			COALESCE(l.like_count, 0),
+			COALESCE(c.comment_count, 0)
+		FROM posts p
+		JOIN users u ON p.user_id = u.id
+		JOIN follows f ON f.followee_id = p.user_id
+		LEFT JOIN (
+			SELECT post_id, COUNT(*) AS like_count
+			FROM likes
+			GROUP BY post_id
+		) l ON p.id = l.post_id
+		LEFT JOIN (
+			SELECT post_id, COUNT(*) AS comment_count
+			FROM comments
+			GROUP BY post_id
+		) c ON p.id = c.post_id
+		WHERE f.follower_id = $1
+		ORDER BY p.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
+
 	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	var feed []NewsfeedItem
+	var posts []PostResponse
 	for rows.Next() {
-		var item NewsfeedItem
-		err := rows.Scan(&item.PostID, &item.AuthorUsername, &item.Content, &item.ImageURL, &item.CreatedAt)
+		var post PostResponse
+		err := rows.Scan(
+			&post.PostID,
+			&post.AuthorUsername,
+			&post.Content,
+			&post.ImageURL,
+			&post.CreatedAt,
+			&post.LikeCount,
+			&post.CommentCount,
+		)
 		if err != nil {
 			http.Error(w, "Server error", http.StatusInternalServerError)
 			return
 		}
-		feed = append(feed, item)
+		posts = append(posts, post)
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(feed)
+	if err := json.NewEncoder(w).Encode(posts); err != nil {
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
 }
