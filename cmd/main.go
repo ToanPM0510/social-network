@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 
+	"github.com/ToanPM0510/social-network/api"
 	"github.com/ToanPM0510/social-network/internal/db"
 )
 
@@ -24,4 +26,12 @@ func main() {
 	defer database.Close()
 
 	fmt.Println("Connected to database successfully!")
+
+	authHandler := &api.AuthHandler{DB: database}
+
+	http.HandleFunc("/register", authHandler.Register)
+	http.HandleFunc("/login", authHandler.Login)
+
+	fmt.Println("Server running at http://localhost:8080")
+	http.ListenAndServe(":8080", nil)
 }
