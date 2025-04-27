@@ -9,6 +9,7 @@ import (
 
 	"github.com/ToanPM0510/social-network/api"
 	"github.com/ToanPM0510/social-network/internal/db"
+	"github.com/ToanPM0510/social-network/internal/feed"
 	"github.com/ToanPM0510/social-network/internal/post"
 	"github.com/ToanPM0510/social-network/internal/user"
 )
@@ -36,12 +37,14 @@ func main() {
 	authHandler := &api.AuthHandler{DB: database}
 	followHandler := &user.FollowHandler{DB: database}
 	postHandler := &post.PostHandler{DB: database}
+	newsfeedHandler := &feed.NewsfeedHandler{DB: database}
 
 	r.HandleFunc("/register", authHandler.Register).Methods("POST")
 	r.HandleFunc("/login", authHandler.Login).Methods("POST")
 	r.HandleFunc("/follow/{userID}", followHandler.Follow).Methods("POST")
 	r.HandleFunc("/unfollow/{userID}", followHandler.Unfollow).Methods("POST")
 	r.HandleFunc("/posts", postHandler.CreatePost).Methods("POST")
+	r.HandleFunc("/newsfeed", newsfeedHandler.GetNewsfeed).Methods("GET")
 
 	fmt.Println("Server running at http://localhost:8080")
 	http.ListenAndServe(":8080", r)
