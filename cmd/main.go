@@ -7,6 +7,8 @@ import (
 
 	"github.com/ToanPM0510/social-network/api"
 	"github.com/ToanPM0510/social-network/internal/db"
+	"github.com/ToanPM0510/social-network/internal/user"
+	"github.com/gorilla/mux"
 )
 
 func main() {
@@ -27,11 +29,16 @@ func main() {
 
 	fmt.Println("Connected to database successfully!")
 
-	authHandler := &api.AuthHandler{DB: database}
+	r := mux.NewRouter()
 
-	http.HandleFunc("/register", authHandler.Register)
-	http.HandleFunc("/login", authHandler.Login)
+	authHandler := &api.AuthHandler{DB: database}
+	followHandler := &user.FollowHandler{DB: database}
+
+	r.HandleFunc("/register", authHandler.Register).Methods("POST")
+	r.HandleFunc("/login", authHandler.Login).Methods("POST")
+	r.HandleFunc("/follow/{userID}", followHandler.Follow).Methods("POST")
+	r.HandleFunc("/unfollow/{userID}", followHandler.Unfollow).Methods("POST")
 
 	fmt.Println("Server running at http://localhost:8080")
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":8080", r)
 }
