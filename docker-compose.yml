@@ -1,29 +1,15 @@
 version: '3.8'
-
 services:
-  postgres:
-    image: postgres:14
+  db:
+    image: postgres:15
     container_name: social_network_db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
       POSTGRES_DB: social_network
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/migrations:/docker-entrypoint-initdb.d
-
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: social_network_pgadmin
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
-    depends_on:
-      - postgres
-
+      - db_data:/var/lib/postgresql/data
 volumes:
-  postgres_data:
+  db_data:
